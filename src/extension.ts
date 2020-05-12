@@ -1,27 +1,132 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import { Parser } from 'node-sql-parser';
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
-
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "sql-insert-convert" is now active!');
-
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	let disposable = vscode.commands.registerCommand('extension.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World!');
-	});
-
-	context.subscriptions.push(disposable);
+interface IParser {
+    astify(text: string): any;
+    sqlify(ast: any): any;
 }
 
-// this method is called when your extension is deactivated
-export function deactivate() {}
+class NodeSqlParser implements IParser {
+    parser = new Parser();
+    opt = {
+        database: 'mysql'
+    };
+    astify(text: string): any {
+        return this.parser.astify(text, this.opt);
+    };
+    sqlify(ast: any): string {
+        return this.parser.sqlify(ast, this.opt);
+    };
+};
+
+const test_query = `
+insert into users (id, name) values (1, 'hoge');
+insert users (id, name) values (1, 'hoge');
+insert users (id, name) values (1, 'hoge'), (2, 'fuga');
+insert into users set id = 1, name = 'hoge', status = 0;
+`;
+
+export function activate(context: vscode.ExtensionContext) {
+
+    let disposable_conv2values = vscode.commands.registerCommand('extension.conv2values', () => {
+        textConv(set2values);
+    });
+
+    let disposable_conv2set = vscode.commands.registerCommand('extension.conv2set', () => {
+        textConv(values2set);
+    });
+
+    context.subscriptions.push(
+        disposable_conv2values,
+        disposable_conv2set
+    );
+}
+
+function textConv(converter: (ast: any) => void): void {
+    let editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        // エディタが取れない場合
+        throw new Error('Active text editor not found.');
+    }
+    let doc = editor.document;
+    let cur_selection = editor.selection;
+    if (editor.selection.isEmpty) {
+        // 選択範囲が空であれば全てを選択範囲にする
+        let startPos = new vscode.Position(0, 0);
+        let endPos = new vscode.Position(doc.lineCount - 1, 10000);
+        cur_selection = new vscode.Selection(startPos, endPos);
+    }
+    let text: string = doc.getText(cur_selection);
+
+    editor.edit(edit => {
+        edit.replace(cur_selection, sqlConv(new NodeSqlParser, text, converter));
+    });
+}
+
+function sqlConv(parser: IParser, text: string, converter: (ast: any) => void): string {
+    let query_list = text2QueryList(text);
+    let output_list: string[] = [];
+    for (let query of query_list) {
+        if (/^INSERT/i.test(query)) {
+            let ast = parser.astify(query);
+            converter(ast);
+            query = parser.sqlify(ast).replace(/ (;) /g, "$1\n") + ";";
+        }
+        output_list.push(query);
+    }
+    return output_list.join('');
+}
+
+function text2QueryList(text: string): string[] {
+    let query_list = text.split(/(INSERT .+?;)/gis);
+    return query_list;
+}
+
+function set2values(ast_list: any) {
+    for (let ast of ast_list) {
+        // setのastをvaluesのastに変換する
+        if ('set' in ast) {
+            let set_list = ast.set;
+            delete ast.set;
+            let column_list = [];
+            let value_list = [];
+            for (let set_item of set_list) {
+                column_list.push(set_item.column);
+                value_list.push(set_item.value);
+            }
+            ast.columns = column_list;
+            ast.values = [{
+                "type": "expr_list",
+                "value": value_list
+            }];
+        }
+    }
+}
+
+function values2set(ast_list: any) {
+    for (let ast of ast_list) {
+        // valuesのastをsetに変換する
+        if ('values' in ast) {
+            let columns_list = ast.columns;
+            if (!columns_list) {
+                throw new Error('has not columns');
+            }
+            let values_list = ast.values;
+            delete ast.columns;
+            delete ast.values;
+            let set_list = [];
+            for (let i = 0; i < columns_list.length; i++) {
+                set_list.push({
+                    "column": columns_list[i],
+                    "value": values_list[0].value[i],
+                    "table": null
+                });
+            }
+            ast.set = set_list;
+        }
+    }
+}
+
+export function deactivate() { }
