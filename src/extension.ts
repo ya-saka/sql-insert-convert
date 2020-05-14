@@ -72,7 +72,9 @@ function sqlConv(parser: IParser, text: string, converter: (ast: any) => void): 
         if (/^INSERT/i.test(query)) {
             let reg = /^(INSERT) +?(?!INTO )/i;
             let ast = parser.astify(query.replace(reg, '$1 INTO '));
-            converter(ast);
+            console.log(JSON.stringify(ast, null, 2));
+            ast = converter(ast);
+            console.log(JSON.stringify(ast, null, 2));
             query = parser.sqlify(ast).replace(/ (;) /g, "$1\n") + ";";
         }
         output_list.push(query);
@@ -104,9 +106,12 @@ function set2values(ast_list: any) {
             }];
         }
     }
+    return ast_list;
 }
 
 function values2set(ast_list: any) {
+    ast_list = bulk2values(ast_list);
+    console.log(JSON.stringify(ast_list, null, 2));
     for (let ast of ast_list) {
         // valuesのastをsetに変換する
         if ('values' in ast) {
@@ -128,6 +133,29 @@ function values2set(ast_list: any) {
             ast.set = set_list;
         }
     }
+    return ast_list;
+}
+
+function bulk2values(ast_list: any) {
+    let return_list = [];
+    for (let ast of ast_list) {
+        // bulkのastをvaluesに変換する
+        if ('values' in ast) {
+            let values_list = ast.values;
+            if (values_list.length > 1) {
+                for (let values of values_list) {
+                    let copy = JSON.parse(JSON.stringify(ast));
+                    copy.values = [values];
+                    return_list.push(copy);
+                }
+            } else {
+                return_list.push(ast);
+            }
+        } else {
+            return_list.push(ast);
+        }
+    }
+    return return_list;
 }
 
 export function deactivate() { }
