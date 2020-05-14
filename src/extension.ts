@@ -70,7 +70,8 @@ function sqlConv(parser: IParser, text: string, converter: (ast: any) => void): 
     let output_list: string[] = [];
     for (let query of query_list) {
         if (/^INSERT/i.test(query)) {
-            let ast = parser.astify(query);
+            let reg = /^(INSERT) +?(?!INTO )/i;
+            let ast = parser.astify(query.replace(reg, '$1 INTO '));
             converter(ast);
             query = parser.sqlify(ast).replace(/ (;) /g, "$1\n") + ";";
         }
