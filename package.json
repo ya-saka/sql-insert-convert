@@ -3,6 +3,7 @@
     "displayName": "sql-insert-convert",
     "description": "Convert sql insert statement VALUES <=> SET",
     "version": "0.0.1",
+    "publisher": "yasaka",
     "engines": {
         "vscode": "^1.44.0"
     },
